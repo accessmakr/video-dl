@@ -1,5 +1,6 @@
 import os
 import threading
+import tempfile as _tempfile
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -12,6 +13,20 @@ from .jobs import update_job
 DOWNLOAD_DIR = Path("/tmp/downloads")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def _write_cookie_file(env_var: str):
+    content = os.environ.get(env_var)
+    if not content:
+        return None
+    f = _tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+    f.write(content)
+    f.flush()
+    return f.name
+
+
+_COOKIE_FILE = _write_cookie_file("COOKIES")
+
+
 BASE_OPTS: dict = {
     "merge_output_format": "mp4",
     "writethumbnail": False,
@@ -22,37 +37,37 @@ BASE_OPTS: dict = {
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0.0.0 Safari/537.36"
         ),
-        "Accept":                  "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language":         "en-US,en;q=0.5",
-        "Accept-Encoding":         "gzip, deflate, br",
-        "DNT":                     "1",
+        "Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language":           "en-US,en;q=0.5",
+        "Accept-Encoding":           "gzip, deflate, br",
+        "DNT":                       "1",
         "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest":          "document",
-        "Sec-Fetch-Mode":          "navigate",
-        "Sec-Fetch-Site":          "none",
-        "Sec-Fetch-User":          "?1",
+        "Sec-Fetch-Dest":            "document",
+        "Sec-Fetch-Mode":            "navigate",
+        "Sec-Fetch-Site":            "none",
+        "Sec-Fetch-User":            "?1",
     },
-    "retries":                   10,
-    "fragment_retries":          10,
+    "retries":                    10,
+    "fragment_retries":           10,
     "skip_unavailable_fragments": True,
-    "ignoreerrors":              False,
-    "nocheckcertificate":        True,
-    "sleep_interval":            1,
-    "max_sleep_interval":        5,
-    "geo_bypass":                True,
+    "ignoreerrors":               False,
+    "nocheckcertificate":         True,
+    "sleep_interval":             1,
+    "max_sleep_interval":         5,
+    "geo_bypass":                 True,
     "extractor_args": {
-    "youtube": {
-        "player_client": ["ios", "android_vr"],
-        "skip": ["translated_subs"],
+        "youtube": {
+            "player_client": ["ios", "android_vr"],
+            "skip": ["translated_subs"],
+        },
     },
-    "twitter": {
-        "api": "graphql",
-    },
-},
     "quiet":       True,
     "no_warnings": True,
     "noprogress":  True,
 }
+
+if _COOKIE_FILE:
+    BASE_OPTS["cookiefile"] = _COOKIE_FILE
 
 
 def fetch_video_info(url: str) -> dict:
