@@ -3,7 +3,6 @@ import threading
 import tempfile as _tempfile
 import time
 from pathlib import Path
-from typing import Callable, Optional
 
 import yt_dlp
 from jose import jwt
@@ -15,6 +14,7 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _write_cookie_file(env_var: str):
+    """Reads cookie content from an env var and writes it to a temp file."""
     content = os.environ.get(env_var)
     if not content:
         return None
@@ -28,9 +28,12 @@ _COOKIE_FILE = _write_cookie_file("COOKIES")
 
 
 BASE_OPTS: dict = {
+    # ── Output ──────────────────────────────────────────────────────
     "merge_output_format": "mp4",
-    "writethumbnail": False,
-    "writesubtitles": False,
+    "writethumbnail":      False,
+    "writesubtitles":      False,
+
+    # ── Browser impersonation ────────────────────────────────────────
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -47,29 +50,60 @@ BASE_OPTS: dict = {
         "Sec-Fetch-Site":            "none",
         "Sec-Fetch-User":            "?1",
     },
+
+    # ── Resilience ───────────────────────────────────────────────────
     "retries":                    10,
     "fragment_retries":           10,
     "skip_unavailable_fragments": True,
     "ignoreerrors":               False,
     "nocheckcertificate":         True,
-    "sleep_interval":             1,
-    "max_sleep_interval":         5,
-    "geo_bypass":                 True,
+
+    # ── Rate-limit politeness ────────────────────────────────────────
+    "sleep_interval":     1,
+    "max_sleep_interval": 5,
+
+    # ── Geo bypass ───────────────────────────────────────────────────
+    "geo_bypass": True,
+
+    # ── Per-platform extractor fixes ─────────────────────────────────
     "extractor_args": {
         "youtube": {
-            "player_client": ["ios", "android_vr"],
-            "skip": ["translated_subs"],
+            # ios + mweb are the most bot-detection-resistant clients in 2025.
+            # player_skip=webpage stops yt-dlp attempting to parse YouTube's
+            # obfuscated JS, which causes "Failed to extract any player response".
+            "player_client": ["ios", "mweb", "android"],
+            "player_skip":   ["webpage"],
+            "skip":          ["translated_subs"],
+        },
+        "tiktok": {
+            # trill (TikTok's international app) returns less-restricted responses
+            "app_name":    ["trill"],
+            "app_version": ["26.1.3"],
+        },
+        "twitter": {
+            # GraphQL API is more reliable than the legacy scraper
+            "api": "graphql",
+        },
+        "facebook": {
+            # Attempt the logged-in API endpoint first; falls back to public
+            "api": "v3.3",
         },
     },
+
+    # ── Silence ──────────────────────────────────────────────────────
     "quiet":       True,
     "no_warnings": True,
     "noprogress":  True,
 }
 
+# Attach cookies file if the COOKIES env var was set
 if _COOKIE_FILE:
     BASE_OPTS["cookiefile"] = _COOKIE_FILE
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ANALYZE — extract metadata only, no download
+# ─────────────────────────────────────────────────────────────────────────────
 def fetch_video_info(url: str) -> dict:
     with yt_dlp.YoutubeDL(BASE_OPTS) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -103,6 +137,9 @@ def fetch_video_info(url: str) -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# DOWNLOAD — runs in background thread, updates job store throughout
+# ─────────────────────────────────────────────────────────────────────────────
 def run_download(job_id: str, url: str, format_id: str) -> None:
     out_dir = DOWNLOAD_DIR / job_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -121,8 +158,8 @@ def run_download(job_id: str, url: str, format_id: str) -> None:
 
     opts = {
         **BASE_OPTS,
-        "format": format_id,
-        "outtmpl": str(out_dir / "%(title)s.%(ext)s"),
+        "format":         format_id,
+        "outtmpl":        str(out_dir / "%(title)s.%(ext)s"),
         "progress_hooks": [progress_hook],
     }
 
