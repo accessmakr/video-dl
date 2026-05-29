@@ -11,6 +11,6 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_URL
-        value: https://PLACEHOLDER-replace-after-netlify-deploy.netlify.app
+        value: https://video-dnlr.netlify.app
     healthCheckPath: /health
     autoDeploy: true
