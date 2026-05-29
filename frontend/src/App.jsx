@@ -22,17 +22,6 @@ export default function App() {
     }
   }, [info]);
 
-  useEffect(() => {
-    if (job?.status === 'done' && job.download_token) {
-      const a    = document.createElement('a');
-      a.href     = getDownloadURL(jobId, job.download_token);
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-  }, [job]);
-
   const handleAnalyze = (url) => {
     setCurrentURL(url);
     setJobId(null);
@@ -62,6 +51,16 @@ export default function App() {
         </>
       )}
       {job && <ProgressPanel job={job} />}
+      {job?.status === 'done' && job?.download_token && (
+        
+          href={getDownloadURL(jobId, job.download_token)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full max-w-2xl bg-green-600 hover:bg-green-500 text-white font-semibold py-3 rounded-xl transition-colors text-center block"
+        >
+          ✓ Tap here to save your file
+        </a>
+      )}
     </div>
   );
 }
