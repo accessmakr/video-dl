@@ -68,22 +68,17 @@ BASE_OPTS: dict = {
     # ── Per-platform extractor fixes ──────────────────────────────────
     "extractor_args": {
         "youtube": {
-            # tv_embedded bypasses the PO-token requirement that blocks
-            # cloud server IPs in 2025. ios + android as fallbacks.
-            # player_skip removed — it was cutting off extraction paths.
+            # tv_embedded bypasses PO-token requirement that blocks
+            # cloud server IPs. ios + android as fallbacks.
             "player_client": ["tv_embedded", "ios", "android"],
             "skip":          ["translated_subs"],
         },
         "tiktok": {
+            # trill app returns less restricted responses
             "app_name":    ["trill"],
             "app_version": ["26.1.3"],
         },
-        "twitter": {
-            "api": "graphql",
-        },
-        "facebook": {
-            "api": "v3.3",
-        },
+        # twitter and facebook handled automatically by latest yt-dlp
     },
 
     # ── Silence ───────────────────────────────────────────────────────
@@ -92,12 +87,13 @@ BASE_OPTS: dict = {
     "noprogress":  True,
 }
 
+# Attach cookies file if COOKIES env var was set on Render
 if _COOKIE_FILE:
     BASE_OPTS["cookiefile"] = _COOKIE_FILE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ANALYZE
+# ANALYZE — extract metadata only, no download
 # ─────────────────────────────────────────────────────────────────────────────
 def fetch_video_info(url: str) -> dict:
     with yt_dlp.YoutubeDL(BASE_OPTS) as ydl:
@@ -133,7 +129,7 @@ def fetch_video_info(url: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DOWNLOAD
+# DOWNLOAD — runs in background thread, updates job store throughout
 # ─────────────────────────────────────────────────────────────────────────────
 def run_download(job_id: str, url: str, format_id: str) -> None:
     out_dir = DOWNLOAD_DIR / job_id
