@@ -41,14 +41,14 @@ BASE_OPTS: dict = {
     "max_sleep_interval":        5,
     "geo_bypass":                True,
     "extractor_args": {
-        "youtube": {
-            "player_client": ["android", "web"],
-            "skip": ["translated_subs"],
-        },
-        "twitter": {
-            "api": "graphql",
-        },
+    "youtube": {
+        "player_client": ["ios", "android_vr"],
+        "skip": ["translated_subs"],
     },
+    "twitter": {
+        "api": "graphql",
+    },
+},
     "quiet":       True,
     "no_warnings": True,
     "noprogress":  True,
