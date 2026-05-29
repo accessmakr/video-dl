@@ -1,0 +1,35 @@
+[build]
+  command = "cd frontend && npm install && npm run build"
+  publish = "frontend/dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[[redirects]]
+  from   = "/api/analyze"
+  to     = "/.netlify/functions/analyze"
+  status = 200
+
+[[redirects]]
+  from   = "/api/download"
+  to     = "/.netlify/functions/download"
+  status = 200
+
+[[redirects]]
+  from   = "/api/status/*"
+  to     = "/.netlify/functions/status/:splat"
+  status = 200
+
+[[redirects]]
+  from   = "/api/file/*"
+  to     = "/.netlify/functions/file-redirect/:splat"
+  status = 200
+
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
