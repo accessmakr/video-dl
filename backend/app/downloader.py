@@ -28,12 +28,12 @@ _COOKIE_FILE = _write_cookie_file("COOKIES")
 
 
 BASE_OPTS: dict = {
-    # ── Output ──────────────────────────────────────────────────────
+    # ── Output ───────────────────────────────────────────────────────
     "merge_output_format": "mp4",
     "writethumbnail":      False,
     "writesubtitles":      False,
 
-    # ── Browser impersonation ────────────────────────────────────────
+    # ── Browser impersonation ─────────────────────────────────────────
     "http_headers": {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -51,58 +51,53 @@ BASE_OPTS: dict = {
         "Sec-Fetch-User":            "?1",
     },
 
-    # ── Resilience ───────────────────────────────────────────────────
+    # ── Resilience ────────────────────────────────────────────────────
     "retries":                    10,
     "fragment_retries":           10,
     "skip_unavailable_fragments": True,
     "ignoreerrors":               False,
     "nocheckcertificate":         True,
 
-    # ── Rate-limit politeness ────────────────────────────────────────
+    # ── Rate-limit politeness ─────────────────────────────────────────
     "sleep_interval":     1,
     "max_sleep_interval": 5,
 
-    # ── Geo bypass ───────────────────────────────────────────────────
+    # ── Geo bypass ────────────────────────────────────────────────────
     "geo_bypass": True,
 
-    # ── Per-platform extractor fixes ─────────────────────────────────
+    # ── Per-platform extractor fixes ──────────────────────────────────
     "extractor_args": {
         "youtube": {
-            # ios + mweb are the most bot-detection-resistant clients in 2025.
-            # player_skip=webpage stops yt-dlp attempting to parse YouTube's
-            # obfuscated JS, which causes "Failed to extract any player response".
-            "player_client": ["ios", "mweb", "android"],
-            "player_skip":   ["webpage"],
+            # tv_embedded bypasses the PO-token requirement that blocks
+            # cloud server IPs in 2025. ios + android as fallbacks.
+            # player_skip removed — it was cutting off extraction paths.
+            "player_client": ["tv_embedded", "ios", "android"],
             "skip":          ["translated_subs"],
         },
         "tiktok": {
-            # trill (TikTok's international app) returns less-restricted responses
             "app_name":    ["trill"],
             "app_version": ["26.1.3"],
         },
         "twitter": {
-            # GraphQL API is more reliable than the legacy scraper
             "api": "graphql",
         },
         "facebook": {
-            # Attempt the logged-in API endpoint first; falls back to public
             "api": "v3.3",
         },
     },
 
-    # ── Silence ──────────────────────────────────────────────────────
+    # ── Silence ───────────────────────────────────────────────────────
     "quiet":       True,
     "no_warnings": True,
     "noprogress":  True,
 }
 
-# Attach cookies file if the COOKIES env var was set
 if _COOKIE_FILE:
     BASE_OPTS["cookiefile"] = _COOKIE_FILE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ANALYZE — extract metadata only, no download
+# ANALYZE
 # ─────────────────────────────────────────────────────────────────────────────
 def fetch_video_info(url: str) -> dict:
     with yt_dlp.YoutubeDL(BASE_OPTS) as ydl:
@@ -138,7 +133,7 @@ def fetch_video_info(url: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DOWNLOAD — runs in background thread, updates job store throughout
+# DOWNLOAD
 # ─────────────────────────────────────────────────────────────────────────────
 def run_download(job_id: str, url: str, format_id: str) -> None:
     out_dir = DOWNLOAD_DIR / job_id
