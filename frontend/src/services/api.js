@@ -1,7 +1,12 @@
+const COBALT_DIRECT = import.meta.env.VITE_COBALT_URL;
+
 export async function getDownloadLink(url, videoQuality, audioOnly) {
-  const res = await fetch('/api/cobalt', {
+  const res = await fetch(`${COBALT_DIRECT}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept':       'application/json',
+    },
     body: JSON.stringify({
       url,
       videoQuality,
