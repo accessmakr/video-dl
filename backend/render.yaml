@@ -1,16 +1,14 @@
 services:
   - type: web
-    name: videodl-backend
+    name: cobalt-api
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
     rootDir: backend
     envVars:
-      - key: API_KEY
-        generateValue: true
-      - key: JWT_SECRET
-        generateValue: true
-      - key: FRONTEND_URL
-        value: https://video-dnlr.netlify.app
-    healthCheckPath: /health
+      - key: API_URL
+        value: https://cobalt-api.onrender.com
+      - key: PORT
+        value: 10000
+    healthCheckPath: /
     autoDeploy: true
