@@ -89,7 +89,7 @@ export default function App() {
       )}
 
       {isStream && (
-        
+        <a
           href={result.url}
           target="_blank"
           rel="noopener noreferrer"
@@ -106,7 +106,7 @@ export default function App() {
           </p>
           <div className="grid grid-cols-2 gap-2">
             {result.picker.map((item, i) => (
-              
+              <a
                 key={i}
                 href={item.url}
                 target="_blank"
@@ -123,7 +123,7 @@ export default function App() {
             ))}
           </div>
           {result.audio && (
-            
+            <a
               href={result.audio}
               target="_blank"
               rel="noopener noreferrer"
