@@ -2,9 +2,9 @@
 set -e
 
 if [ -n "$COOKIES_CONTENT" ]; then
-    mkdir -p /cookies
-    printf '%s' "$COOKIES_CONTENT" > /cookies/cookies.txt
-    export COOKIE_PATH=/cookies/cookies.txt
+    mkdir -p /tmp/cookies
+    printf '%s' "$COOKIES_CONTENT" > /tmp/cookies/cookies.txt
+    export COOKIE_PATH=/tmp/cookies/cookies.txt
     echo "Cookie file written."
 fi
 
