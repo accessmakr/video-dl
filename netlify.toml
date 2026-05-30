@@ -10,6 +10,11 @@
   NODE_VERSION = "18"
 
 [[redirects]]
+  from   = "/api/preview"
+  to     = "/.netlify/functions/preview"
+  status = 200
+
+[[redirects]]
   from   = "/api/cobalt"
   to     = "/.netlify/functions/cobalt"
   status = 200
