@@ -10,23 +10,8 @@
   NODE_VERSION = "18"
 
 [[redirects]]
-  from   = "/api/analyze"
-  to     = "/.netlify/functions/analyze"
-  status = 200
-
-[[redirects]]
-  from   = "/api/download"
-  to     = "/.netlify/functions/download"
-  status = 200
-
-[[redirects]]
-  from   = "/api/status/*"
-  to     = "/.netlify/functions/status/:splat"
-  status = 200
-
-[[redirects]]
-  from   = "/api/file/*"
-  to     = "/.netlify/functions/file-redirect/:splat"
+  from   = "/api/cobalt"
+  to     = "/.netlify/functions/cobalt"
   status = 200
 
 [[redirects]]
