@@ -1,25 +1,20 @@
-const BASE = import.meta.env.VITE_API_BASE ?? '/api';
-
-async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+export async function getDownloadLink(url, videoQuality, audioOnly) {
+  const res = await fetch('/api/cobalt', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    ...options,
+    body: JSON.stringify({
+      url,
+      videoQuality,
+      downloadMode:  audioOnly ? 'audio' : 'auto',
+      filenameStyle: 'pretty',
+    }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? 'Request failed');
+
+  const data = await res.json();
+
+  if (!res.ok || data.status === 'error') {
+    throw new Error(data.error?.code ?? 'Unknown error');
   }
-  return res.json();
+
+  return data;
 }
-
-export const analyzeVideo = (url) =>
-  request('/analyze', { method: 'POST', body: JSON.stringify({ url }) });
-
-export const startDownload = (url, format_id) =>
-  request('/download', { method: 'POST', body: JSON.stringify({ url, format_id }) });
-
-export const getStatus = (jobId) =>
-  request(`/status/${jobId}`);
-
-export const getDownloadURL = (jobId, token) =>
-  `${import.meta.env.VITE_BACKEND_DIRECT ?? ''}/file/${jobId}?token=${token}`;
