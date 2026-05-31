@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import lamejs from 'lamejs';
+import { useState, useEffect, useRef } from 'react';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { getDownloadLink, getPreview } from './services/api';
 
 const QUALITIES = ['360', '480', '720', '1080'];
@@ -23,22 +24,30 @@ function openVideo(href) {
   window.open(href, '_blank', 'noopener,noreferrer');
 }
 
-function floatToInt16(input) {
-  const output = new Int16Array(input.length);
-  for (let i = 0; i < input.length; i++) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return output;
+// ─── MP3 Converter ────────────────────────────────────────────────────────────
+const ffmpegRef = { current: null };
+
+async function loadFFmpeg(onStatus) {
+  if (ffmpegRef.current) return ffmpegRef.current;
+  onStatus('Loading converter (first time only)…');
+  const ff = new FFmpeg();
+  const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+  await ff.load({
+    coreURL: await toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript'),
+    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+  });
+  ffmpegRef.current = ff;
+  return ff;
 }
 
 function Mp3Converter() {
   const [file,       setFile]       = useState(null);
-  const [converting, setConverting] = useState(false);
+  const [status,     setStatus]     = useState('');
   const [progress,   setProgress]   = useState(0);
   const [mp3Url,     setMp3Url]     = useState(null);
   const [mp3Name,    setMp3Name]    = useState('audio.mp3');
   const [error,      setError]      = useState(null);
+  const converting = status !== '' && status !== 'done';
 
   const handleFile = (e) => {
     const f = e.target.files[0];
@@ -46,56 +55,42 @@ function Mp3Converter() {
     setFile(f);
     setMp3Url(null);
     setError(null);
+    setStatus('');
     setProgress(0);
     setMp3Name(f.name.replace(/\.[^.]+$/, '') + '.mp3');
   };
 
   const convert = async () => {
     if (!file) return;
-    setConverting(true);
     setError(null);
     setMp3Url(null);
     setProgress(0);
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const audioCtx    = new AudioContext();
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-      await audioCtx.close();
+      const ff = await loadFFmpeg(setStatus);
+      setStatus('Converting…');
 
-      const channels   = audioBuffer.numberOfChannels;
-      const sampleRate = audioBuffer.sampleRate;
-      const left       = audioBuffer.getChannelData(0);
-      const right      = channels > 1 ? audioBuffer.getChannelData(1) : audioBuffer.getChannelData(0);
-      const encoder    = new lamejs.Mp3Encoder(channels, sampleRate, 128);
-      const mp3Chunks  = [];
-      const blockSize  = 1152;
+      ff.on('progress', ({ progress: p }) => {
+        setProgress(Math.round(Math.max(0, Math.min(99, p * 100))));
+      });
 
-      for (let i = 0; i < left.length; i += blockSize) {
-        const lChunk = floatToInt16(left.subarray(i, i + blockSize));
-        const rChunk = floatToInt16(right.subarray(i, i + blockSize));
-        const chunk  = encoder.encodeBuffer(lChunk, rChunk);
-        if (chunk.length > 0) mp3Chunks.push(new Uint8Array(chunk));
-        setProgress(Math.round((i / left.length) * 95));
-        if (i % (blockSize * 200) === 0) await new Promise(r => setTimeout(r, 0));
-      }
+      await ff.writeFile('input.mp4', await fetchFile(file));
+      await ff.exec(['-i', 'input.mp4', '-vn', '-acodec', 'libmp3lame', '-ab', '128k', 'output.mp3']);
 
-      const tail = encoder.flush();
-      if (tail.length > 0) mp3Chunks.push(new Uint8Array(tail));
-
-      const blob = new Blob(mp3Chunks, { type: 'audio/mpeg' });
+      const data = await ff.readFile('output.mp3');
+      const blob = new Blob([data.buffer], { type: 'audio/mpeg' });
       setMp3Url(URL.createObjectURL(blob));
       setProgress(100);
-    } catch {
-      setError('Could not read audio from this file. Try a different video.');
-    } finally {
-      setConverting(false);
+      setStatus('done');
+    } catch (e) {
+      setError('Conversion failed — try a different file.');
+      setStatus('');
     }
   };
 
   const saveMp3 = () => {
     if (!mp3Url) return;
     const a = document.createElement('a');
-    a.href = mp3Url;
+    a.href     = mp3Url;
     a.download = mp3Name;
     document.body.appendChild(a);
     a.click();
@@ -120,23 +115,26 @@ function Mp3Converter() {
         )}
       </label>
 
-      {file && !mp3Url && (
-        <button
-          onClick={convert}
-          disabled={converting}
-          className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-colors"
-        >
-          {converting ? `Converting… ${progress}%` : 'Extract MP3'}
-        </button>
+      {status && status !== 'done' && (
+        <p className="text-zinc-400 text-xs text-center">{status}</p>
       )}
 
-      {converting && (
+      {(converting || progress > 0) && status !== 'done' && (
         <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
           <div
-            className="h-1.5 bg-purple-500 rounded-full transition-all duration-200"
+            className="h-1.5 bg-purple-500 rounded-full transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
+      )}
+
+      {file && status !== 'done' && !converting && (
+        <button
+          onClick={convert}
+          className="bg-purple-600 hover:bg-purple-500 text-white font-semibold py-3 rounded-xl text-sm transition-colors"
+        >
+          Extract MP3
+        </button>
       )}
 
       {mp3Url && (
@@ -153,6 +151,7 @@ function Mp3Converter() {
   );
 }
 
+// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [url,        setUrl]        = useState('');
   const [quality,    setQuality]    = useState('720');
@@ -210,7 +209,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Input */}
+      {/* URL input */}
       <div className="w-full max-w-xl flex flex-col gap-3">
         <div className={`flex items-center gap-2 border rounded-xl px-4 py-3 bg-zinc-900 transition-colors ${
           platform        ? 'border-blue-500' :
@@ -244,10 +243,10 @@ export default function App() {
           </p>
         )}
 
-        {/* Thumbnail preview card — shows while loading and when thumbnail found */}
-        {platform && (previewing || preview) && (
+        {/* Preview card — shows for all platforms once URL is detected */}
+        {platform && (previewing || preview !== null) && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex gap-3 p-3 items-center">
-            {/* Thumbnail or platform icon placeholder */}
+            {/* Thumbnail: real image for Twitter, platform icon for FB/Instagram */}
             {previewing && !preview?.thumbnail ? (
               <div className="w-28 h-16 bg-zinc-800 rounded-lg flex-shrink-0 animate-pulse" />
             ) : preview?.thumbnail ? (
@@ -255,10 +254,13 @@ export default function App() {
                 src={preview.thumbnail}
                 alt=""
                 className="w-28 h-16 object-cover rounded-lg flex-shrink-0"
-                onError={(e) => { e.target.style.display = 'none'; }}
+                onError={(e) => { e.target.replaceWith(Object.assign(document.createElement('div'), {
+                  className: `w-28 h-16 bg-zinc-800 rounded-lg flex-shrink-0 flex items-center justify-center text-2xl`,
+                  textContent: platform.icon
+                })); }}
               />
             ) : (
-              <div className={`w-28 h-16 bg-zinc-800 rounded-lg flex-shrink-0 flex items-center justify-center text-3xl ${platform.color}`}>
+              <div className={`w-28 h-16 bg-zinc-800 rounded-lg flex-shrink-0 flex items-center justify-center text-2xl ${platform.color}`}>
                 {platform.icon}
               </div>
             )}
@@ -313,14 +315,13 @@ export default function App() {
           >
             ✓ Open Video
           </button>
-          {/* Mobile download instruction — always shown */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-start gap-3">
-            <span className="text-zinc-400 text-lg mt-0.5">📱</span>
+            <span className="text-lg mt-0.5">📱</span>
             <div>
               <p className="text-zinc-300 text-xs font-medium">To save the video to your phone:</p>
               <p className="text-zinc-500 text-xs mt-1">
-                Tap <strong className="text-zinc-300">Open Video</strong> above → video plays in browser → tap the
-                <strong className="text-zinc-300"> ⋮ three dots</strong> at the bottom right of the player → tap
+                Tap <strong className="text-zinc-300">Open Video</strong> → video plays → tap the
+                <strong className="text-zinc-300"> ⋮ three dots</strong> at the bottom right → tap
                 <strong className="text-zinc-300"> Download</strong>
               </p>
             </div>
@@ -328,10 +329,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Picker — Instagram carousels / multiple items */}
+      {/* Picker — carousels */}
       {result?.status === 'picker' && (
         <div className="w-full max-w-xl flex flex-col gap-3">
-          <p className="text-zinc-400 text-sm text-center">Multiple items — tap each to open, then ⋮ → Download</p>
+          <p className="text-zinc-400 text-sm text-center">
+            Multiple items — tap each to open, then ⋮ → Download
+          </p>
           <div className="grid grid-cols-2 gap-2">
             {result.picker.map((item, i) => (
               <button
