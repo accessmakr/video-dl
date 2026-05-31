@@ -19,6 +19,10 @@ function isValidURL(u) {
   try { new URL(u); return true; } catch { return false; }
 }
 
+function openVideo(href) {
+  window.open(href, '_blank', 'noopener,noreferrer');
+}
+
 function floatToInt16(input) {
   const output = new Int16Array(input.length);
   for (let i = 0; i < input.length; i++) {
@@ -52,7 +56,6 @@ function Mp3Converter() {
     setError(null);
     setMp3Url(null);
     setProgress(0);
-
     try {
       const arrayBuffer = await file.arrayBuffer();
       const audioCtx    = new AudioContext();
@@ -63,10 +66,9 @@ function Mp3Converter() {
       const sampleRate = audioBuffer.sampleRate;
       const left       = audioBuffer.getChannelData(0);
       const right      = channels > 1 ? audioBuffer.getChannelData(1) : audioBuffer.getChannelData(0);
-
-      const encoder   = new lamejs.Mp3Encoder(channels, sampleRate, 128);
-      const mp3Chunks = [];
-      const blockSize = 1152;
+      const encoder    = new lamejs.Mp3Encoder(channels, sampleRate, 128);
+      const mp3Chunks  = [];
+      const blockSize  = 1152;
 
       for (let i = 0; i < left.length; i += blockSize) {
         const lChunk = floatToInt16(left.subarray(i, i + blockSize));
@@ -83,11 +85,21 @@ function Mp3Converter() {
       const blob = new Blob(mp3Chunks, { type: 'audio/mpeg' });
       setMp3Url(URL.createObjectURL(blob));
       setProgress(100);
-    } catch (e) {
+    } catch {
       setError('Could not read audio from this file. Try a different video.');
     } finally {
       setConverting(false);
     }
+  };
+
+  const saveMp3 = () => {
+    if (!mp3Url) return;
+    const a = document.createElement('a');
+    a.href = mp3Url;
+    a.download = mp3Name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   return (
@@ -95,7 +107,7 @@ function Mp3Converter() {
       <div>
         <h2 className="text-white font-semibold text-sm">Convert Video to MP3</h2>
         <p className="text-zinc-500 text-xs mt-0.5">
-          Download the video above first, then select it here to extract audio
+          Download the video first, then select it here to extract audio
         </p>
       </div>
 
@@ -128,18 +140,15 @@ function Mp3Converter() {
       )}
 
       {mp3Url && (
-        <a
-          href={mp3Url}
-          download={mp3Name}
-          className="bg-green-600 hover:bg-green-500 text-white font-semibold py-3 rounded-xl text-sm text-center block transition-colors"
+        <button
+          onClick={saveMp3}
+          className="bg-green-600 hover:bg-green-500 text-white font-semibold py-3 rounded-xl text-sm text-center transition-colors"
         >
-          ✓ Tap to save {mp3Name}
-        </a>
+          ✓ Save {mp3Name}
+        </button>
       )}
 
-      {error && (
-        <p className="text-red-400 text-xs text-center">{error}</p>
-      )}
+      {error && <p className="text-red-400 text-xs text-center">{error}</p>}
     </div>
   );
 }
@@ -186,6 +195,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center px-4 py-12 gap-6">
 
+      {/* Header */}
       <div className="text-center max-w-xl">
         <h1 className="text-3xl font-bold mb-2">Video Downloader</h1>
         <p className="text-zinc-400 text-sm mb-4">
@@ -200,6 +210,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* Input */}
       <div className="w-full max-w-xl flex flex-col gap-3">
         <div className={`flex items-center gap-2 border rounded-xl px-4 py-3 bg-zinc-900 transition-colors ${
           platform        ? 'border-blue-500' :
@@ -233,20 +244,36 @@ export default function App() {
           </p>
         )}
 
-        {platform && (previewing || preview?.thumbnail) && (
+        {/* Thumbnail preview card — shows while loading and when thumbnail found */}
+        {platform && (previewing || preview) && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex gap-3 p-3 items-center">
+            {/* Thumbnail or platform icon placeholder */}
             {previewing && !preview?.thumbnail ? (
               <div className="w-28 h-16 bg-zinc-800 rounded-lg flex-shrink-0 animate-pulse" />
+            ) : preview?.thumbnail ? (
+              <img
+                src={preview.thumbnail}
+                alt=""
+                className="w-28 h-16 object-cover rounded-lg flex-shrink-0"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
             ) : (
-              <img src={preview.thumbnail} alt="" className="w-28 h-16 object-cover rounded-lg flex-shrink-0" />
+              <div className={`w-28 h-16 bg-zinc-800 rounded-lg flex-shrink-0 flex items-center justify-center text-3xl ${platform.color}`}>
+                {platform.icon}
+              </div>
             )}
+
             <div className="flex flex-col gap-1 overflow-hidden flex-1">
-              {preview?.title ? (
-                <p className="text-white text-sm font-medium line-clamp-2">{preview.title}</p>
-              ) : (
+              {previewing && !preview?.title ? (
                 <div className="h-4 bg-zinc-800 rounded animate-pulse w-3/4" />
+              ) : (
+                <p className="text-white text-sm font-medium line-clamp-2">
+                  {preview?.title || platform.label + ' Video'}
+                </p>
               )}
-              <span className={`text-xs ${platform.color}`}>{platform.icon} {platform.label}</span>
+              <span className={`text-xs ${platform.color}`}>
+                {platform.icon} {platform.label}
+              </span>
             </div>
           </div>
         )}
@@ -266,42 +293,55 @@ export default function App() {
           disabled={!platform || loading}
           className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
         >
-          {loading ? 'Getting link…' : 'Download Video'}
+          {loading ? 'Getting link…' : 'Get Download Link'}
         </button>
       </div>
 
+      {/* Error */}
       {error && (
         <div className="w-full max-w-xl bg-red-950 border border-red-800 rounded-xl px-4 py-3 text-red-400 text-sm text-center">
           {error}
         </div>
       )}
 
+      {/* Single video result */}
       {isStream && (
-        <a
-          href={result.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-full max-w-xl bg-green-600 hover:bg-green-500 text-white font-semibold py-3 rounded-xl text-center block transition-colors"
-        >
-          ✓ Tap here to save your file
-        </a>
+        <div className="w-full max-w-xl flex flex-col gap-2">
+          <button
+            onClick={() => openVideo(result.url)}
+            className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold py-3 rounded-xl text-center transition-colors"
+          >
+            ✓ Open Video
+          </button>
+          {/* Mobile download instruction — always shown */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-start gap-3">
+            <span className="text-zinc-400 text-lg mt-0.5">📱</span>
+            <div>
+              <p className="text-zinc-300 text-xs font-medium">To save the video to your phone:</p>
+              <p className="text-zinc-500 text-xs mt-1">
+                Tap <strong className="text-zinc-300">Open Video</strong> above → video plays in browser → tap the
+                <strong className="text-zinc-300"> ⋮ three dots</strong> at the bottom right of the player → tap
+                <strong className="text-zinc-300"> Download</strong>
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
+      {/* Picker — Instagram carousels / multiple items */}
       {result?.status === 'picker' && (
         <div className="w-full max-w-xl flex flex-col gap-3">
-          <p className="text-zinc-400 text-sm text-center">Multiple items — tap each to save</p>
+          <p className="text-zinc-400 text-sm text-center">Multiple items — tap each to open, then ⋮ → Download</p>
           <div className="grid grid-cols-2 gap-2">
             {result.picker.map((item, i) => (
-              <a
+              <button
                 key={i}
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden hover:border-zinc-500 transition-colors"
+                onClick={() => openVideo(item.url)}
+                className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden hover:border-zinc-500 transition-colors text-left"
               >
                 {item.thumb && <img src={item.thumb} alt="" className="w-full h-32 object-cover" />}
                 <p className="p-2 text-xs text-zinc-400 text-center">🎬 Item {i + 1}</p>
-              </a>
+              </button>
             ))}
           </div>
         </div>
