@@ -1,3 +1,9 @@
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Embedder-Policy = "credentialless"
+    Cross-Origin-Opener-Policy   = "same-origin"
+
 [build]
   command = "cd frontend && npm install && npm run build"
   publish = "frontend/dist"
