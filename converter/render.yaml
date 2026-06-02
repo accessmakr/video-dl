@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: audio-converter
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    rootDir: converter
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: FRONTEND_URL
+        value: https://PLACEHOLDER-replace-after-netlify-deploy.netlify.app
+    healthCheckPath: /health
+    autoDeploy: true
