@@ -26,6 +26,16 @@
   status = 200
 
 [[redirects]]
+  from   = "/api/convert/job"
+  to     = "/.netlify/functions/convert-job"
+  status = 200
+
+[[redirects]]
+  from   = "/api/convert/status/*"
+  to     = "/.netlify/functions/convert-status/:splat"
+  status = 200
+
+[[redirects]]
   from   = "/*"
   to     = "/index.html"
   status = 200
