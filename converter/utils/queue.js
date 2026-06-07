@@ -1,36 +1,27 @@
 /**
- * Async job processor.
- * Downloads video from URL (if needed) then runs FFmpeg conversion.
- * All I/O is streamed to /tmp to avoid memory overload on free tier.
+ * utils/queue.js — v2
+ * Uses probeAudioStream() before attempting conversion.
+ * Shows friendly "no audio track" error instead of FFmpeg exit code.
  */
 
 const fs   = require('fs');
 const path = require('path');
-const { pipeline } = require('stream/promises');
-const { Readable }  = require('stream');
-const { getJob, updateJob } = require('./jobs');
-const { runFFmpeg }          = require('./ffmpeg');
+const { Readable }               = require('stream');
+const { pipeline }               = require('stream/promises');
+const { getJob, updateJob }      = require('./jobs');
+const { runFFmpeg, probeAudioStream } = require('./ffmpeg');
 
 const UPLOAD_DIR = '/tmp/uploads';
 
-/**
- * Stream a remote URL to disk without buffering in memory.
- */
 async function downloadUrl(url, destPath) {
   const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0',
-    },
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0' },
   });
   if (!res.ok) throw new Error(`Remote fetch failed: HTTP ${res.status}`);
   const writer = fs.createWriteStream(destPath);
   await pipeline(Readable.fromWeb(res.body), writer);
 }
 
-/**
- * Process a single job.
- * Called asynchronously immediately after job creation.
- */
 async function processJob(jobId) {
   const job = getJob(jobId);
   if (!job) return;
@@ -41,15 +32,21 @@ async function processJob(jobId) {
     // Step 1 — download if URL-based
     if (!inputPath && job.inputUrl) {
       updateJob(jobId, { status: 'downloading', statusText: 'Downloading video…' });
-      const ext  = (job.inputUrl.split('?')[0].split('.').pop() || 'mp4').slice(0, 5);
-      inputPath  = path.join(UPLOAD_DIR, `${jobId}.${ext}`);
+      const ext = (job.inputUrl.split('?')[0].split('.').pop() || 'mp4').slice(0, 5);
+      inputPath = path.join(UPLOAD_DIR, `${jobId}.${ext}`);
       await downloadUrl(job.inputUrl, inputPath);
       updateJob(jobId, { inputPath });
     }
 
-    // Step 2 — convert
-    updateJob(jobId, { status: 'converting', statusText: 'Converting…', progress: 0 });
+    // Step 2 — verify audio stream exists before FFmpeg
+    updateJob(jobId, { status: 'converting', statusText: 'Checking file…', progress: 0 });
+    const hasAudio = await probeAudioStream(inputPath);
+    if (!hasAudio) {
+      throw new Error('This video has no audio track. Nothing to convert.');
+    }
 
+    // Step 3 — convert
+    updateJob(jobId, { statusText: 'Converting…' });
     await runFFmpeg(
       inputPath,
       job.outputPath,
@@ -58,7 +55,7 @@ async function processJob(jobId) {
       ({ progress, eta }) => updateJob(jobId, { progress, eta })
     );
 
-    // Step 3 — done
+    // Step 4 — done
     const { size } = fs.statSync(job.outputPath);
     updateJob(jobId, {
       status:        'done',
@@ -76,10 +73,7 @@ async function processJob(jobId) {
       progress:   0,
     });
   } finally {
-    // Always clean up the input after processing
-    if (inputPath && fs.existsSync(inputPath)) {
-      try { fs.unlinkSync(inputPath); } catch {}
-    }
+    if (inputPath && fs.existsSync(inputPath)) try { fs.unlinkSync(inputPath); } catch {}
   }
 }
 
