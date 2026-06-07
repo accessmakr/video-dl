@@ -1,8 +1,11 @@
 /**
- * converter/server.js — v2
- * Audio conversion + Watermark removal
- * Fixed: watermark endpoint now uses ffprobe to get exact pixel dimensions
- *        before applying delogo filter (fixes FFmpeg exit 234 / EINVAL error)
+ * converter/server.js — v3
+ *
+ * Fixes in this version:
+ *   1. Audio: explicit -map 0:a:0 and -b:a flag (via updated ffmpeg.js)
+ *   2. Watermark: replaced delogo (not in Alpine ffmpeg) with
+ *      crop+boxblur+overlay approach — works on ALL ffmpeg builds
+ *      and gives a better visual result (smooth blur vs hard edge)
  */
 
 const express      = require('express');
@@ -38,10 +41,8 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb' }));
 
-// ── Rate limiting ─────────────────────────────────────────────────────────────
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
+  windowMs: 15 * 60 * 1000, max: 10,
   message: { error: 'Too many requests. Please try again later.' },
 });
 
@@ -59,36 +60,46 @@ const upload = multer({
   }),
   limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (ALLOWED_MIME.has(file.mimetype)) return cb(null, true);
-    cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    ALLOWED_MIME.has(file.mimetype) ? cb(null, true) : cb(new Error(`Unsupported: ${file.mimetype}`));
   },
 });
 
 const VALID_FORMATS   = new Set(['mp3','m4a','aac','wav','flac','ogg']);
 const VALID_QUALITIES = new Set(['64','128','192','256','320']);
 
-// ── ffprobe: get video width + height ─────────────────────────────────────────
+// ── ffprobe: get video dimensions ─────────────────────────────────────────────
 function getVideoDimensions(filePath) {
   return new Promise((resolve, reject) => {
-    const proc = spawn('ffprobe', [
-      '-v',            'quiet',
-      '-print_format', 'json',
-      '-show_streams',
-      '-select_streams','v:0',
-      filePath,
+    const p = spawn('ffprobe', [
+      '-v','quiet','-print_format','json',
+      '-show_streams','-select_streams','v:0', filePath,
     ]);
     let out = '';
-    proc.stdout.on('data', d => out += d.toString());
-    proc.on('close', code => {
+    p.stdout.on('data', d => out += d.toString());
+    p.on('close', code => {
       if (code !== 0) return reject(new Error('ffprobe failed'));
       try {
-        const data = JSON.parse(out);
-        const s    = data.streams[0];
+        const s = JSON.parse(out).streams[0];
         resolve({ width: s.width, height: s.height });
       } catch (e) { reject(e); }
     });
-    proc.on('error', reject);
+    p.on('error', reject);
   });
+}
+
+// ── FFmpeg progress parser ────────────────────────────────────────────────────
+function parseProgress(text, duration) {
+  if (!duration) return null;
+  const t = text.match(/time=\s*(\d+):(\d+):(\d+\.?\d*)/);
+  if (!t) return null;
+  const cur = +t[1]*3600 + +t[2]*60 + parseFloat(t[3]);
+  return Math.min(99, Math.round((cur / duration) * 100));
+}
+
+function parseDuration(text) {
+  const m = text.match(/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/);
+  if (!m) return null;
+  return +m[1]*3600 + +m[2]*60 + parseFloat(m[3]);
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -99,7 +110,6 @@ app.post('/jobs', limiter, upload.single('file'), (req, res) => {
   try {
     const format  = (req.body.format  || 'mp3').toLowerCase();
     const quality = String(req.body.quality || '128');
-
     if (!VALID_FORMATS.has(format))    return res.status(400).json({ error: 'Invalid format.'  });
     if (!VALID_QUALITIES.has(quality)) return res.status(400).json({ error: 'Invalid quality.' });
 
@@ -115,13 +125,11 @@ app.post('/jobs', limiter, upload.single('file'), (req, res) => {
     createJob(jobId, {
       status: 'queued', statusText: 'Queued…', progress: 0, eta: null,
       format, quality,
-      inputPath:     file?.path || null,
-      inputUrl:      url  || null,
+      inputPath: file?.path || null,
+      inputUrl:  url  || null,
       outputPath,
-      filename:      `${baseName}.${format}`,
-      fileSizeBytes: null,
-      error:         null,
-      createdAt:     Date.now(),
+      filename: `${baseName}.${format}`,
+      fileSizeBytes: null, error: null, createdAt: Date.now(),
     });
 
     processJob(jobId);
@@ -131,7 +139,7 @@ app.post('/jobs', limiter, upload.single('file'), (req, res) => {
   }
 });
 
-// ── GET /jobs/:id — Poll status ───────────────────────────────────────────────
+// ── GET /jobs/:id ─────────────────────────────────────────────────────────────
 app.get('/jobs/:id', (req, res) => {
   const job = getJob(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found or expired.' });
@@ -139,7 +147,7 @@ app.get('/jobs/:id', (req, res) => {
   res.json({ ...safe, jobId: req.params.id });
 });
 
-// ── GET /jobs/:id/download — Download result ──────────────────────────────────
+// ── GET /jobs/:id/download ────────────────────────────────────────────────────
 app.get('/jobs/:id/download', (req, res) => {
   const job = getJob(req.params.id);
   if (!job)                           return res.status(404).json({ error: 'Job not found.' });
@@ -148,8 +156,10 @@ app.get('/jobs/:id/download', (req, res) => {
   res.download(job.outputPath, job.filename, () => scheduleCleanup(req.params.id, 10 * 60 * 1000));
 });
 
-// ── POST /watermark — Watermark removal ───────────────────────────────────────
-// Fixed: uses ffprobe to resolve percent coords into pixels before calling delogo
+// ── POST /watermark ───────────────────────────────────────────────────────────
+// Uses crop+boxblur+overlay instead of delogo.
+// delogo is not available in Alpine Linux's ffmpeg package.
+// The blur approach works universally and gives a smoother result.
 app.post('/watermark', limiter, upload.single('file'), async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ error: 'Video file required.' });
@@ -160,10 +170,10 @@ app.post('/watermark', limiter, upload.single('file'), async (req, res) => {
   const jobId      = uuid();
   const outputPath = path.join(OUTPUT_DIR, `${jobId}.mp4`);
 
-  let xRaw = parseFloat(req.body.x || 0);
-  let yRaw = parseFloat(req.body.y || 0);
-  let wRaw = parseFloat(req.body.w || 25);
-  let hRaw = parseFloat(req.body.h || 15);
+  const xRaw = parseFloat(req.body.x || 0);
+  const yRaw = parseFloat(req.body.y || 0);
+  const wRaw = parseFloat(req.body.w || 25);
+  const hRaw = parseFloat(req.body.h || 15);
 
   createJob(jobId, {
     status: 'converting', statusText: 'Removing watermark…', progress: 0, eta: null,
@@ -172,16 +182,15 @@ app.post('/watermark', limiter, upload.single('file'), async (req, res) => {
     fileSizeBytes: null, error: null, createdAt: Date.now(),
   });
 
-  // Respond immediately — client polls status
   res.json({ jobId, status: 'processing' });
 
-  // Run async
-  (async () => {
+  // Run async after responding
+  ;(async () => {
     try {
-      // ── Step 1: Get exact video dimensions via ffprobe ──────────────────
+      // Get exact pixel dimensions via ffprobe
       const { width, height } = await getVideoDimensions(file.path);
 
-      // ── Step 2: Convert percent → integer pixels ────────────────────────
+      // Convert percent → pixels and clamp to video bounds
       let xPx, yPx, wPx, hPx;
       if (mode === 'percent') {
         xPx = Math.round(width  * (xRaw / 100));
@@ -194,54 +203,63 @@ app.post('/watermark', limiter, upload.single('file'), async (req, res) => {
         wPx = Math.round(wRaw);
         hPx = Math.round(hRaw);
       }
+      xPx = Math.max(0, Math.min(xPx, width  - 2));
+      yPx = Math.max(0, Math.min(yPx, height - 2));
+      wPx = Math.max(2, Math.min(wPx, width  - xPx));
+      hPx = Math.max(2, Math.min(hPx, height - yPx));
 
-      // Clamp so region doesn't exceed video bounds
-      xPx = Math.max(0, Math.min(xPx, width  - 1));
-      yPx = Math.max(0, Math.min(yPx, height - 1));
-      wPx = Math.max(1, Math.min(wPx, width  - xPx));
-      hPx = Math.max(1, Math.min(hPx, height - yPx));
+      // Build blur-overlay filter (no delogo dependency)
+      // 1. Crop the watermark region
+      // 2. Apply heavy box blur to it
+      // 3. Overlay the blurred patch back at the same position
+      const filterStr = [
+        `[0:v]crop=${wPx}:${hPx}:${xPx}:${yPx},boxblur=20:20[wm]`,
+        `[0:v][wm]overlay=${xPx}:${yPx}[out]`,
+      ].join(';');
 
-      const filterStr = `delogo=x=${xPx}:y=${yPx}:w=${wPx}:h=${hPx}:show=0`;
-
-      // ── Step 3: Run FFmpeg ───────────────────────────────────────────────
       await new Promise((resolve, reject) => {
         const ff = spawn('ffmpeg', [
-          '-i',       file.path,
-          '-vf',      filterStr,
-          '-c:a',     'copy',
-          '-c:v',     'libx264',
-          '-preset',  'fast',
-          '-crf',     '23',
-          '-y',       outputPath,
+          '-i',               file.path,
+          '-filter_complex',  filterStr,
+          '-map',             '[out]',
+          '-map',             '0:a?',     // copy audio if present, skip if not
+          '-c:a',             'copy',
+          '-c:v',             'libx264',
+          '-preset',          'fast',
+          '-crf',             '23',
+          '-y',               outputPath,
         ]);
 
         let duration = null;
+        let errBuf   = '';
+
         ff.stderr.on('data', chunk => {
           const text = chunk.toString();
+          errBuf     = (errBuf + text).slice(-2000);
           if (!duration) {
-            const m = text.match(/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/);
-            if (m) duration = +m[1]*3600 + +m[2]*60 + parseFloat(m[3]);
+            const d = parseDuration(text);
+            if (d) duration = d;
           }
-          if (duration) {
-            const t = text.match(/time=\s*(\d+):(\d+):(\d+\.?\d*)/);
-            if (t) {
-              const cur = +t[1]*3600 + +t[2]*60 + parseFloat(t[3]);
-              updateJob(jobId, { progress: Math.min(99, Math.round((cur/duration)*100)) });
-            }
-          }
+          const p = parseProgress(text, duration);
+          if (p !== null) updateJob(jobId, { progress: p });
         });
 
-        ff.on('close',  code => code === 0 ? resolve() : reject(new Error(`FFmpeg exited ${code}`)));
-        ff.on('error',  reject);
+        ff.on('close', code =>
+          code === 0 ? resolve() : reject(new Error(`FFmpeg exited ${code}: ${errBuf.slice(-300)}`))
+        );
+        ff.on('error', reject);
       });
 
       const { size } = fs.statSync(outputPath);
-      updateJob(jobId, { status: 'done', progress: 100, statusText: 'Complete', fileSizeBytes: size });
+      updateJob(jobId, {
+        status: 'done', progress: 100,
+        statusText: 'Complete', fileSizeBytes: size,
+      });
 
     } catch (err) {
-      updateJob(jobId, { status: 'error', statusText: 'Watermark removal failed', error: err.message });
+      updateJob(jobId, { status: 'error', statusText: 'Removal failed', error: err.message });
     } finally {
-      if (file.path && fs.existsSync(file.path)) try { fs.unlinkSync(file.path); } catch {}
+      if (file?.path && fs.existsSync(file.path)) try { fs.unlinkSync(file.path); } catch {}
     }
   })();
 });
