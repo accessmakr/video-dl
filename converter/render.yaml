@@ -9,6 +9,6 @@ services:
       - key: PORT
         value: 3001
       - key: FRONTEND_URL
-        value: https://video-dnlr.netlify.app
+        value: https://vidvert.netlify.app
     healthCheckPath: /health
     autoDeploy: true
