@@ -23,15 +23,16 @@ function detectPlatform(url) {
 function isValidURL(u) { try { new URL(u); return true; } catch { return false; } }
 function openVideo(href) { window.open(href, '_blank', 'noopener,noreferrer'); }
 
+// 8 tabs — renders as 4×2 grid, all visible without scrolling
 const TABS = [
-  { id: 'downloader', icon: '⬇',  label: 'Download'  },
-  { id: 'audio',      icon: '🎵', label: 'Audio'     },
-  { id: 'video',      icon: '🎬', label: 'Video'     },
-  { id: 'compress',   icon: '🗜',  label: 'Compress'  },
-  { id: 'trim',       icon: '✂',  label: 'Trim'      },
-  { id: 'gif',        icon: '🎞',  label: 'GIF'       },
-  { id: 'watermark',  icon: '🚫', label: 'Watermark' },
-  { id: 'imgwm',      icon: '🖼',  label: 'Image WM'  },
+  { id: 'downloader', icon: '⬇',  label: 'Download',  color: 'text-blue-400'   },
+  { id: 'audio',      icon: '🎵', label: 'Audio',      color: 'text-purple-400' },
+  { id: 'video',      icon: '🎬', label: 'Video',      color: 'text-green-400'  },
+  { id: 'compress',   icon: '🗜',  label: 'Compress',   color: 'text-orange-400' },
+  { id: 'trim',       icon: '✂',  label: 'Trim',       color: 'text-yellow-400' },
+  { id: 'gif',        icon: '🎞',  label: 'GIF',        color: 'text-pink-400'   },
+  { id: 'watermark',  icon: '🚫', label: 'Watermark',  color: 'text-red-400'    },
+  { id: 'imgwm',      icon: '🖼',  label: 'Image WM',   color: 'text-violet-400' },
 ];
 
 export default function App() {
@@ -78,6 +79,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
 
+      {/* ── Header ── */}
       <header className="flex flex-col items-center px-4 pt-10 pb-4 gap-2">
         <h1 className="text-3xl font-bold tracking-tight">
           Vid<span className="text-blue-400">Vert</span>
@@ -95,37 +97,61 @@ export default function App() {
         </div>
       </header>
 
+      {/* ── Status Ticker ── */}
       <StatusTicker />
 
-      <nav className="flex gap-1.5 px-4 pt-5 pb-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }} aria-label="Tools">
+      {/* ── Tool Grid — 4×2, all tabs visible without scrolling ── */}
+      <nav className="grid grid-cols-4 gap-2 px-4 pt-5 pb-2" aria-label="Tools">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)} aria-pressed={activeTab === t.id}
-            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border whitespace-nowrap transition-all
-              ${activeTab === t.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}>
-            <span aria-hidden="true">{t.icon}</span>{t.label}
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            aria-pressed={activeTab === t.id}
+            className={`
+              flex flex-col items-center justify-center gap-1
+              py-3 rounded-xl border text-center transition-all
+              ${activeTab === t.id
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800'}
+            `}
+          >
+            <span className="text-lg leading-none" aria-hidden="true">{t.icon}</span>
+            <span className="text-xs font-semibold leading-none">{t.label}</span>
           </button>
         ))}
       </nav>
 
+      {/* ── Main ── */}
       <main className="flex flex-col items-center px-4 py-6 gap-6 flex-1">
 
+        {/* DOWNLOADER */}
         {activeTab === 'downloader' && (
           <div className="w-full max-w-xl flex flex-col gap-4">
             <div className={`flex items-center gap-2 border rounded-xl px-4 py-3 bg-zinc-900 transition-colors
               ${platform ? 'border-blue-500' : isValidURL(url) ? 'border-red-700' : 'border-zinc-700 focus-within:border-zinc-500'}`}>
-              {platform && <span className={`text-lg flex-shrink-0 ${platform.color}`} aria-hidden="true">{platform.icon}</span>}
-              <input type="text" value={url}
+              {platform && (
+                <span className={`text-lg flex-shrink-0 ${platform.color}`} aria-hidden="true">{platform.icon}</span>
+              )}
+              <input
+                type="text" value={url}
                 onChange={(e) => { setUrl(e.target.value); reset(); }}
                 placeholder="Paste Facebook, Twitter or Instagram URL…"
                 className="flex-1 bg-transparent text-white outline-none placeholder-zinc-500 text-sm"
-                aria-label="Video URL" autoFocus />
-              {url && <button onClick={() => { setUrl(''); reset(); setPreview(null); }} className="text-zinc-600 hover:text-zinc-400" aria-label="Clear">✕</button>}
+                aria-label="Video URL" autoFocus
+              />
+              {url && (
+                <button onClick={() => { setUrl(''); reset(); setPreview(null); }}
+                  className="text-zinc-600 hover:text-zinc-400" aria-label="Clear">✕</button>
+              )}
             </div>
 
             {isValidURL(url) && !platform && (
-              <p className="text-red-400 text-xs text-center" role="alert">Only Facebook, X (Twitter) and Instagram links are supported</p>
+              <p className="text-red-400 text-xs text-center" role="alert">
+                Only Facebook, X (Twitter) and Instagram links are supported
+              </p>
             )}
 
+            {/* Preview card */}
             {platform && (previewing || preview !== null) && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex gap-3 p-3 items-center">
                 {previewing && !preview?.thumbnail
@@ -145,7 +171,8 @@ export default function App() {
             )}
 
             {platform && (
-              <select value={quality} onChange={(e) => setQuality(e.target.value)} aria-label="Video quality"
+              <select value={quality} onChange={(e) => setQuality(e.target.value)}
+                aria-label="Video quality"
                 className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 text-white text-sm outline-none">
                 {QUALITIES.map(q => <option key={q} value={q}>{q}p</option>)}
               </select>
@@ -157,7 +184,9 @@ export default function App() {
             </button>
 
             {error && (
-              <div className="bg-red-950 border border-red-800 rounded-xl px-4 py-3 text-red-400 text-sm text-center" role="alert">{error}</div>
+              <div className="bg-red-950 border border-red-800 rounded-xl px-4 py-3 text-red-400 text-sm text-center" role="alert">
+                {error}
+              </div>
             )}
 
             {isStream && (
@@ -177,8 +206,13 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+                {/* Quick-action shortcuts */}
                 <div className="grid grid-cols-3 gap-1.5">
-                  {[{tab:'audio',label:'🎵 Audio'},{tab:'trim',label:'✂ Trim'},{tab:'watermark',label:'🚫 Remove WM'}].map(({tab,label}) => (
+                  {[
+                    { tab: 'audio',     label: '🎵 Convert Audio' },
+                    { tab: 'trim',      label: '✂ Trim Video'    },
+                    { tab: 'watermark', label: '🚫 Remove WM'    },
+                  ].map(({ tab, label }) => (
                     <button key={tab} onClick={() => setActiveTab(tab)}
                       className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium py-2 rounded-xl border border-zinc-700 transition-colors">
                       {label}
@@ -194,7 +228,8 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-2">
                   {result.picker.map((item, i) => (
                     <button key={i} onClick={() => openVideo(item.url)}
-                      className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden hover:border-zinc-500 transition-colors text-left">
+                      className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden hover:border-zinc-500 transition-colors text-left"
+                      aria-label={`Open item ${i + 1}`}>
                       {item.thumb && <img src={item.thumb} alt="" className="w-full h-32 object-cover" />}
                       <p className="p-2 text-xs text-zinc-400 text-center">Item {i + 1}</p>
                     </button>
